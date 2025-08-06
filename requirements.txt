@@ -6,4 +6,5 @@ numpy
 matplotlib
 seaborn
 windrose
+scipy
 fpdf2
