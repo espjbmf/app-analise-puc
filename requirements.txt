@@ -1,0 +1,9 @@
+streamlit
+pandas
+plotly
+firebase-admin
+numpy
+matplotlib
+seaborn
+windrose
+fpdf2
