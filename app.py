@@ -66,38 +66,55 @@ def carregar_dados_firebase(_db_connection):
     return df
 
 # --- 3. FUNÇÃO DE GERAÇÃO DE PDF ---
-def criar_relatorio_pdf(caminho_pasta, resumo_df, data_inicio, data_fim, graficos_info):
+def criar_relatorio_pdf(caminho_pasta, resumo_geral_df, resumo_cronologico_df, data_inicio, data_fim, graficos_info):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font('helvetica', 'B', 18)
     pdf.cell(0, 10, 'Relatório de Análise Meteorológica', ln=True, align='C')
     pdf.set_font('helvetica', '', 12)
     pdf.cell(0, 10, f"Período: {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}", ln=True, align='C')
-    pdf.ln(10)
+    pdf.ln(5)
 
-    if "Resumo Estatístico" in graficos_info and not resumo_df.empty:
-        pdf.set_font('helvetica', 'B', 12); pdf.cell(0, 10, 'Resumo de Máximas e Mínimas Registradas', ln=True)
-        pdf.ln(2)
+    # 1. Tabela de Resumo Geral no PDF
+    if "Resumo Estatístico" in graficos_info and not resumo_geral_df.empty:
+        pdf.set_font('helvetica', 'B', 12); pdf.cell(0, 10, 'Resumo Estatístico Geral', ln=True)
+        pdf.ln(1)
+        col_width = pdf.epw / (len(resumo_geral_df.columns) + 1)
+        line_height = pdf.font_size * 1.8
         
-        # Estrutura de colunas adaptada para a nova tabela
-        col_width = pdf.epw / (len(resumo_df.columns) + 1)
-        line_height = pdf.font_size * 2
-        
-        pdf.set_font('helvetica', 'B', 9)
-        pdf.cell(col_width, line_height, 'Variavel', border=1, align='C')
-        for col in resumo_df.columns: 
-            pdf.cell(col_width, line_height, col, border=1, align='C')
+        pdf.set_font('helvetica', 'B', 8)
+        pdf.cell(col_width, line_height, '', border=1, align='C')
+        for col in resumo_geral_df.columns: pdf.cell(col_width, line_height, col, border=1, align='C')
         pdf.ln()
         
-        pdf.set_font('helvetica', '', 9)
-        for index, row in resumo_df.iterrows():
-            pdf.set_font('helvetica', 'B', 9)
-            pdf.cell(col_width, line_height, str(index), border=1)
-            pdf.set_font('helvetica', '', 9)
-            for col in resumo_df.columns: 
-                pdf.cell(col_width, line_height, str(row[col]), border=1, align='C')
+        pdf.set_font('helvetica', '', 8)
+        for index, row in resumo_geral_df.iterrows():
+            pdf.set_font('helvetica', 'B', 8); pdf.cell(col_width, line_height, str(index), border=1)
+            pdf.set_font('helvetica', '', 8)
+            for col in resumo_geral_df.columns: pdf.cell(col_width, line_height, str(row[col]), border=1, align='C')
             pdf.ln()
-    
+        pdf.ln(5)
+
+    # 2. Tabela de Máximas/Mínimas Cronológicas no PDF
+    if "Resumo Estatístico" in graficos_info and not resumo_cronologico_df.empty:
+        pdf.set_font('helvetica', 'B', 12); pdf.cell(0, 10, 'Resumo de Máximas e Mínimas com Horários', ln=True)
+        pdf.ln(1)
+        col_width = pdf.epw / (len(resumo_cronologico_df.columns) + 1)
+        line_height = pdf.font_size * 1.8
+        
+        pdf.set_font('helvetica', 'B', 8)
+        pdf.cell(col_width, line_height, 'Variavel', border=1, align='C')
+        for col in resumo_cronologico_df.columns: pdf.cell(col_width, line_height, col, border=1, align='C')
+        pdf.ln()
+        
+        pdf.set_font('helvetica', '', 8)
+        for index, row in resumo_cronologico_df.iterrows():
+            pdf.set_font('helvetica', 'B', 8); pdf.cell(col_width, line_height, str(index), border=1)
+            pdf.set_font('helvetica', '', 8)
+            for col in resumo_cronologico_df.columns: pdf.cell(col_width, line_height, str(row[col]), border=1, align='C')
+            pdf.ln()
+
+    # Outros gráficos
     for titulo, nome_arquivo in graficos_info.items():
         if titulo == "Resumo Estatístico": continue
         caminho_imagem = os.path.join(caminho_pasta, nome_arquivo)
@@ -163,7 +180,7 @@ if check_password():
 
             st.sidebar.subheader("Análises para Gerar")
             opcoes = {
-                "Resumo Estatístico": st.sidebar.checkbox("Resumo de Máximas/Mínimas cronológicas", value=True),
+                "Resumo Estatístico": st.sidebar.checkbox("Painéis de Resumos Estatísticos", value=True),
                 "Análise Diária": st.sidebar.checkbox("Análise Diária (Temp/Umid/Pressão)", value=True),
                 "Distribuição de Weibull": st.sidebar.checkbox("Distribuição de Weibull (Vento)"),
                 "Rosa dos Ventos": st.sidebar.checkbox("Rosa dos Ventos")
@@ -189,10 +206,15 @@ if check_password():
             st.info(f"Analisando {len(df_filtrado)} registros.")
             st.markdown("---")
 
-            # --- NOVO BLOCO: RESUMO ESTATÍSTICO COM DATA/HORA DAS MÁXIMAS E MÍNIMAS ---
+            # --- SEÇÃO DE RESUMOS (TABELAS) ---
             if opcoes["Resumo Estatístico"]:
-                st.subheader("📊 Resumo de Máximas e Mínimas com Horários")
+                # 1. Tabela Original (Geral)
+                st.subheader("📊 Resumo Estatístico Geral")
+                resumo_geral_df = df_filtrado[['temperatura', 'umidade', 'pressao', 'velocidade_vento']].describe().round(2)
+                st.dataframe(resumo_geral_df, use_container_width=True)
                 
+                # 2. Nova Tabela Cronológica (Máximas e Mínimas com Horários)
+                st.subheader("⏱️ Histórico de Máximas e Mínimas com Horários")
                 variaveis = {
                     'temperatura': 'Temperatura (°C)',
                     'umidade': 'Umidade (%)',
@@ -221,10 +243,10 @@ if check_password():
                         })
                 
                 if resumo_dados:
-                    resumo_df = pd.DataFrame(resumo_dados).set_index("Variável")
-                    st.dataframe(resumo_df, use_container_width=True)
+                    resumo_cronologico_df = pd.DataFrame(resumo_dados).set_index("Variável")
+                    st.dataframe(resumo_cronologico_df, use_container_width=True)
                 else:
-                    st.warning("Sem dados válidos para processar máximas e mínimas.")
+                    st.warning("Sem dados válidos para processar máximas e mínimas cronológicas.")
 
             if opcoes["Análise Diária"]:
                 st.subheader("📈 Análise Diária Agregada")
@@ -304,18 +326,22 @@ if check_password():
                 with st.spinner("Gerando relatório PDF... Por favor, aguarde."):
                     with tempfile.TemporaryDirectory() as temp_dir:
                         imagens_a_incluir = {}
-                        resumo_df_pdf = pd.DataFrame()
+                        resumo_geral_pdf = pd.DataFrame()
+                        resumo_cronologico_pdf = pd.DataFrame()
                         
-                        # Processamento do Resumo Estatístico Adaptado para o Relatório do PDF
                         if opcoes["Resumo Estatístico"]:
-                            variaveis = {
+                            # Alimenta dados do resumo geral para o PDF
+                            resumo_geral_pdf = df_filtrado[['temperatura', 'umidade', 'pressao', 'velocidade_vento']].describe().round(2)
+                            
+                            # Alimenta dados cronológicos compactados para o PDF
+                            variaveis_pdf = {
                                 'temperatura': 'Temperatura (°C)',
                                 'umidade': 'Umidade (%)',
                                 'pressao': 'Pressão (hPa)',
                                 'velocidade_vento': 'Vento (km/h)'
                             }
                             resumo_dados_pdf = []
-                            for col_id, col_nome in variaveis.items():
+                            for col_id, col_nome in variaveis_pdf.items():
                                 if col_id in df_filtrado.columns and not df_filtrado[col_id].dropna().empty:
                                     idx_min = df_filtrado[col_id].idxmin()
                                     idx_max = df_filtrado[col_id].idxmax()
@@ -327,7 +353,8 @@ if check_password():
                                         "Hora (Max)": df_filtrado.loc[idx_max, 'timestamp'].strftime('%d/%m %H:%M')
                                     })
                             if resumo_dados_pdf:
-                                resumo_df_pdf = pd.DataFrame(resumo_dados_pdf).set_index("Variem")
+                                resumo_cronologico_pdf = pd.DataFrame(resumo_dados_pdf).set_index("Variem")
+                            
                             imagens_a_incluir['Resumo Estatístico'] = 'resumo.png'
                         
                         if opcoes["Análise Diária"]:
@@ -395,7 +422,7 @@ if check_password():
                                     plt.close(fig_rosa_pdf)
                                     imagens_a_incluir['Rosa dos Ventos'] = 'rosa_dos_ventos.png'
                         
-                        caminho_pdf = criar_relatorio_pdf(temp_dir, resumo_df_pdf, data_inicio, data_fim, imagens_a_incluir)
+                        caminho_pdf = criar_relatorio_pdf(temp_dir, resumo_geral_pdf, resumo_cronologico_pdf, data_inicio, data_fim, imagens_a_incluir)
                         
                         with open(caminho_pdf, "rb") as f:
                             st.session_state.pdf_bytes_download = f.read()
