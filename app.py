@@ -44,7 +44,7 @@ def conectar_ao_firebase():
             firebase_admin.initialize_app(cred, {'databaseURL': database_url})
         return db
     except Exception as e:
-        st.sidebar.error(f"Erro de credenciais do Firebase: Verifique seu secrets.toml")
+        st.sidebar.error("Erro de credenciais do Firebase: Verifique seu secrets.toml")
         return None
 
 @st.cache_data(ttl=600)
@@ -76,16 +76,26 @@ def criar_relatorio_pdf(caminho_pasta, resumo_df, data_inicio, data_fim, grafico
     pdf.ln(10)
 
     if "Resumo Estatístico" in graficos_info and not resumo_df.empty:
-        pdf.set_font('helvetica', 'B', 12); pdf.cell(0, 10, 'Resumo Estatístico', ln=True)
-        pdf.set_font('helvetica', '', 8); col_width = pdf.epw / (len(resumo_df.columns) + 1); line_height = pdf.font_size * 2
-        pdf.set_font('helvetica', 'B', 8); pdf.cell(col_width, line_height, '', border=1)
-        for col in resumo_df.columns: pdf.cell(col_width, line_height, col, border=1, align='C')
+        pdf.set_font('helvetica', 'B', 12); pdf.cell(0, 10, 'Resumo de Máximas e Mínimas Registradas', ln=True)
+        pdf.ln(2)
+        
+        # Estrutura de colunas adaptada para a nova tabela
+        col_width = pdf.epw / (len(resumo_df.columns) + 1)
+        line_height = pdf.font_size * 2
+        
+        pdf.set_font('helvetica', 'B', 9)
+        pdf.cell(col_width, line_height, 'Variavel', border=1, align='C')
+        for col in resumo_df.columns: 
+            pdf.cell(col_width, line_height, col, border=1, align='C')
         pdf.ln()
-        pdf.set_font('helvetica', '', 8)
+        
+        pdf.set_font('helvetica', '', 9)
         for index, row in resumo_df.iterrows():
-            pdf.set_font('helvetica', 'B', 8); pdf.cell(col_width, line_height, index, border=1)
-            pdf.set_font('helvetica', '', 8)
-            for col in resumo_df.columns: pdf.cell(col_width, line_height, str(row[col]), border=1, align='C')
+            pdf.set_font('helvetica', 'B', 9)
+            pdf.cell(col_width, line_height, str(index), border=1)
+            pdf.set_font('helvetica', '', 9)
+            for col in resumo_df.columns: 
+                pdf.cell(col_width, line_height, str(row[col]), border=1, align='C')
             pdf.ln()
     
     for titulo, nome_arquivo in graficos_info.items():
@@ -153,7 +163,7 @@ if check_password():
 
             st.sidebar.subheader("Análises para Gerar")
             opcoes = {
-                "Resumo Estatístico": st.sidebar.checkbox("Resumo Estatístico", value=True),
+                "Resumo Estatístico": st.sidebar.checkbox("Resumo de Máximas/Mínimas cronológicas", value=True),
                 "Análise Diária": st.sidebar.checkbox("Análise Diária (Temp/Umid/Pressão)", value=True),
                 "Distribuição de Weibull": st.sidebar.checkbox("Distribuição de Weibull (Vento)"),
                 "Rosa dos Ventos": st.sidebar.checkbox("Rosa dos Ventos")
@@ -179,24 +189,65 @@ if check_password():
             st.info(f"Analisando {len(df_filtrado)} registros.")
             st.markdown("---")
 
+            # --- NOVO BLOCO: RESUMO ESTATÍSTICO COM DATA/HORA DAS MÁXIMAS E MÍNIMAS ---
             if opcoes["Resumo Estatístico"]:
-                st.subheader("📊 Resumo Estatístico")
-                resumo_df = df_filtrado[['temperatura', 'umidade', 'pressao', 'velocidade_vento']].describe().round(2)
-                st.dataframe(resumo_df)
+                st.subheader("📊 Resumo de Máximas e Mínimas com Horários")
+                
+                variaveis = {
+                    'temperatura': 'Temperatura (°C)',
+                    'umidade': 'Umidade (%)',
+                    'pressao': 'Pressão (hPa)',
+                    'velocidade_vento': 'Velocidade do Vento (km/h)'
+                }
+                
+                resumo_dados = []
+                for col_id, col_nome in variaveis.items():
+                    if col_id in df_filtrado.columns and not df_filtrado[col_id].dropna().empty:
+                        idx_min = df_filtrado[col_id].idxmin()
+                        idx_max = df_filtrado[col_id].idxmax()
+                        
+                        val_min = df_filtrado.loc[idx_min, col_id]
+                        time_min = df_filtrado.loc[idx_min, 'timestamp'].strftime('%d/%m/%Y %H:%M:%S')
+                        
+                        val_max = df_filtrado.loc[idx_max, col_id]
+                        time_max = df_filtrado.loc[idx_max, 'timestamp'].strftime('%d/%m/%Y %H:%M:%S')
+                        
+                        resumo_dados.append({
+                            "Variável": col_nome,
+                            "Mínima": val_min,
+                            "Data/Hora (Mín)": time_min,
+                            "Máxima": val_max,
+                            "Data/Hora (Máx)": time_max
+                        })
+                
+                if resumo_dados:
+                    resumo_df = pd.DataFrame(resumo_dados).set_index("Variável")
+                    st.dataframe(resumo_df, use_container_width=True)
+                else:
+                    st.warning("Sem dados válidos para processar máximas e mínimas.")
 
             if opcoes["Análise Diária"]:
                 st.subheader("📈 Análise Diária Agregada")
-                df_diario = df_filtrado.set_index('timestamp').resample('D').agg(temp_media=('temperatura', 'mean'), temp_max=('temperatura', 'max'), temp_min=('temperatura', 'min'), umid_media=('umidade', 'mean'), pressao_media=('pressao', 'mean')).dropna()
+                df_diario = df_filtrado.set_index('timestamp').resample('D').agg(
+                    temp_media=('temperatura', 'mean'), 
+                    temp_max=('temperatura', 'max'), 
+                    temp_min=('temperatura', 'min'), 
+                    umid_media=('umidade', 'mean'), 
+                    pressao_media=('pressao', 'mean')
+                ).dropna()
+                
                 if len(df_diario) >= 2:
                     fig = make_subplots(specs=[[{"secondary_y": True}]])
                     fig.add_trace(go.Scatter(x=df_diario.index, y=df_diario['temp_media'], name='Temp. Média', line=dict(color='orangered')), secondary_y=False)
                     fig.add_trace(go.Scatter(x=df_diario.index, y=df_diario['umid_media'], name='Umid. Média', line=dict(color='royalblue')), secondary_y=False)
+                    
                     if 'pressao_media' in df_diario.columns and not df_diario['pressao_media'].dropna().empty:
                         fig.add_trace(go.Scatter(x=df_diario.index, y=df_diario['pressao_media'], name='Pressão Média', line=dict(color='lightgreen', dash='dot')), secondary_y=True)
+                    
                     fig.update_layout(template="plotly_dark", title_text='Análise Diária de Temp, Umid e Pressão')
                     fig.update_xaxes(title_text="Data", tickformat="%d/%m/%Y")
                     fig.update_yaxes(title_text="<b>Temp (°C)</b> / <b>Umid (%)</b>", secondary_y=False)
-                    if 'pressao' in df_diario.columns: fig.update_yaxes(title_text="<b>Pressão (hPa)</b>", secondary_y=True, showgrid=False)
+                    fig.update_yaxes(title_text="<b>Pressão (hPa)</b>", secondary_y=True, showgrid=False)
                     st.plotly_chart(fig, use_container_width=True)
                 else:
                     st.warning("Selecione pelo menos 2 dias de dados para a análise diária.")
@@ -209,9 +260,11 @@ if check_password():
                     col1, col2 = st.columns(2)
                     col1.metric("Parâmetro de Forma (k)", f"{shape_k:.2f}")
                     col2.metric("Parâmetro de Escala (c)", f"{scale_c:.2f} m/s")
+                    
                     fig_weibull = go.Figure()
                     hist_data, bin_edges = np.histogram(df_vento_analise, bins=30, density=True)
                     fig_weibull.add_trace(go.Bar(x=bin_edges[:-1], y=hist_data, name='Frequência Real', marker_color='#00bcd4'))
+                    
                     x_axis = np.linspace(0, df_vento_analise.max() * 1.1, 100)
                     pdf_fitted = stats.weibull_min.pdf(x_axis, shape_k, scale=scale_c)
                     fig_weibull.add_trace(go.Scatter(x=x_axis, y=pdf_fitted, mode='lines', name='Curva de Weibull', line=dict(color='red')))
@@ -224,17 +277,24 @@ if check_password():
                 st.subheader("🧭 Rosa dos Ventos")
                 df_rosa_base = df_filtrado[df_filtrado['velocidade_vento'] > 0.1].copy()
                 df_rosa_base['velocidade_ms_rosa'] = df_rosa_base['velocidade_vento'] * 0.27778
-                df_rosa = df_rosa_base[df_rosa_base['velocidade_ms_rosa'].between(vento_selecionado_ms[0], vento_selecionado_ms[1])]
-                if len(df_rosa) >= 20:
+                df_rosa = df_rosa_base[df_rosa_base['velocidade_ms_rosa'].between(vento_selecionado_ms[0], vento_selecionado_ms[1])].copy()
+                
+                if len(df_rosa) >= 20 and 'direcao_vento' in df_rosa.columns:
                     mapa_direcao_graus = {'N': 0, 'NE': 45, 'E': 90, 'SE': 135, 'S': 180, 'SW': 225, 'W': 270, 'NW': 315}
-                    df_rosa['direcao_graus'] = df_rosa['direcao_vento'].map(mapa_direcao_graus).dropna()
-                    fig_rosa = plt.figure(figsize=(6, 6), facecolor='#1a1c20')
-                    ax = WindroseAxes.from_ax(fig=fig_rosa)
-                    ax.bar(df_rosa['direcao_graus'], df_rosa['velocidade_vento'], normed=True, opening=0.8, edgecolor='white')
-                    ax.set_legend(title="Velocidade (km/h)", prop={'size': 'small'}, facecolor='#25282e', labelcolor='white')
-                    plt.setp(ax.get_xticklabels(), color="white"); plt.setp(ax.get_yticklabels(), color="white")
-                    st.pyplot(fig_rosa)
-                    plt.close(fig_rosa)
+                    df_rosa['direcao_graus'] = df_rosa['direcao_vento'].map(mapa_direcao_graus)
+                    df_rosa.dropna(subset=['direcao_graus'], inplace=True)
+                    
+                    if len(df_rosa) >= 20:
+                        fig_rosa = plt.figure(figsize=(6, 6), facecolor='#1a1c20')
+                        ax = WindroseAxes.from_ax(fig=fig_rosa)
+                        ax.bar(df_rosa['direcao_graus'], df_rosa['velocidade_vento'], normed=True, opening=0.8, edgecolor='white')
+                        ax.set_legend(title="Velocidade (km/h)", prop={'size': 'small'}, facecolor='#25282e', labelcolor='white')
+                        plt.setp(ax.get_xticklabels(), color="white")
+                        plt.setp(ax.get_yticklabels(), color="white")
+                        st.pyplot(fig_rosa)
+                        plt.close(fig_rosa)
+                    else:
+                        st.warning("Dados de direção válidos insuficientes.")
                 else:
                     st.warning("Dados de vento e direção insuficientes para gerar a Rosa dos Ventos.")
 
@@ -246,21 +306,52 @@ if check_password():
                         imagens_a_incluir = {}
                         resumo_df_pdf = pd.DataFrame()
                         
+                        # Processamento do Resumo Estatístico Adaptado para o Relatório do PDF
                         if opcoes["Resumo Estatístico"]:
-                            resumo_df_pdf = df_filtrado[['temperatura', 'umidade', 'pressao', 'velocidade_vento']].describe().round(2)
+                            variaveis = {
+                                'temperatura': 'Temperatura (°C)',
+                                'umidade': 'Umidade (%)',
+                                'pressao': 'Pressão (hPa)',
+                                'velocidade_vento': 'Vento (km/h)'
+                            }
+                            resumo_dados_pdf = []
+                            for col_id, col_nome in variaveis.items():
+                                if col_id in df_filtrado.columns and not df_filtrado[col_id].dropna().empty:
+                                    idx_min = df_filtrado[col_id].idxmin()
+                                    idx_max = df_filtrado[col_id].idxmax()
+                                    resumo_dados_pdf.append({
+                                        "Variem": col_nome,
+                                        "Min": df_filtrado.loc[idx_min, col_id],
+                                        "Hora (Min)": df_filtrado.loc[idx_min, 'timestamp'].strftime('%d/%m %H:%M'),
+                                        "Max": df_filtrado.loc[idx_max, col_id],
+                                        "Hora (Max)": df_filtrado.loc[idx_max, 'timestamp'].strftime('%d/%m %H:%M')
+                                    })
+                            if resumo_dados_pdf:
+                                resumo_df_pdf = pd.DataFrame(resumo_dados_pdf).set_index("Variem")
                             imagens_a_incluir['Resumo Estatístico'] = 'resumo.png'
                         
                         if opcoes["Análise Diária"]:
-                            df_diario_pdf = df_filtrado.set_index('timestamp').resample('D').agg(temp_media=('temperatura', 'mean'), temp_max=('temperatura', 'max'), temp_min=('temperatura', 'min'), umid_media=('umidade', 'mean')).dropna()
+                            df_diario_pdf = df_filtrado.set_index('timestamp').resample('D').agg(
+                                temp_media=('temperatura', 'mean'), 
+                                temp_max=('temperatura', 'max'), 
+                                temp_min=('temperatura', 'min'), 
+                                umid_media=('umidade', 'mean')
+                            ).dropna()
+                            
                             if len(df_diario_pdf) >= 2:
                                 fig, ax1 = plt.subplots(figsize=(12, 6))
                                 ax1.plot(df_diario_pdf.index, df_diario_pdf['temp_media'], color='orangered', marker='o', label='Temp. Média')
                                 ax1.fill_between(df_diario_pdf.index, df_diario_pdf['temp_min'], df_diario_pdf['temp_max'], color='lightcoral', alpha=0.3, label='Range Temp.')
-                                ax1.set_ylabel('Temperatura (°C)', color='orangered'); ax1.tick_params(axis='y', labelcolor='orangered'); ax1.grid(True)
+                                ax1.set_ylabel('Temperatura (°C)', color='orangered')
+                                ax1.tick_params(axis='y', labelcolor='orangered')
+                                ax1.grid(True)
+                                
                                 ax2 = ax1.twinx()
                                 ax2.plot(df_diario_pdf.index, df_diario_pdf['umid_media'], color='royalblue', marker='.', linestyle='--', label='Umidade Média')
-                                ax2.set_ylabel('Umidade Média (%)', color='royalblue'); ax2.tick_params(axis='y', labelcolor='royalblue')
-                                plt.title('Análise Diária de Temperatura e Umidade'); fig.legend()
+                                ax2.set_ylabel('Umidade Média (%)', color='royalblue')
+                                ax2.tick_params(axis='y', labelcolor='royalblue')
+                                plt.title('Análise Diária de Temperatura e Umidade')
+                                fig.legend()
                                 plt.savefig(os.path.join(temp_dir, 'analise_diaria.png'), dpi=150, bbox_inches='tight')
                                 plt.close(fig)
                                 imagens_a_incluir['Análise Diária'] = 'analise_diaria.png'
@@ -275,27 +366,34 @@ if check_password():
                                 x_axis = np.linspace(0, df_vento_pdf.max() * 1.1, 200)
                                 pdf_fitted = stats.weibull_min.pdf(x_axis, shape_k, scale=scale_c)
                                 plt.plot(x_axis, pdf_fitted, 'r-', lw=2, alpha=0.8, label=f'Ajuste (k={shape_k:.2f}, c={scale_c:.2f})')
-                                plt.xlabel('Velocidade do Vento (m/s)'); plt.ylabel('Densidade de Probabilidade')
-                                plt.title('Distribuição de Weibull para Velocidade do Vento'); plt.legend(); plt.grid(True)
+                                plt.xlabel('Velocidade do Vento (m/s)')
+                                plt.ylabel('Densidade de Probabilidade')
+                                plt.title('Distribuição de Weibull para Velocidade do Vento')
+                                plt.legend()
+                                plt.grid(True)
                                 plt.savefig(os.path.join(temp_dir, 'weibull_distribuicao.png'), dpi=150, bbox_inches='tight')
                                 plt.close()
                                 imagens_a_incluir['Distribuição de Weibull'] = 'weibull_distribuicao.png'
 
                         if opcoes["Rosa dos Ventos"]:
-                             df_rosa_pdf_base = df_filtrado[df_filtrado['velocidade_vento'] > 0.1].copy()
-                             df_rosa_pdf_base['velocidade_ms_rosa'] = df_rosa_pdf_base['velocidade_vento'] * 0.27778
-                             df_rosa_pdf = df_rosa_pdf_base[df_rosa_pdf_base['velocidade_ms_rosa'].between(vento_selecionado_ms[0], vento_selecionado_ms[1])]
-                             if len(df_rosa_pdf) >= 20:
-                                 mapa_direcao_graus = {'N': 0, 'NE': 45, 'E': 90, 'SE': 135, 'S': 180, 'SW': 225, 'W': 270, 'NW': 315}
-                                 df_rosa_pdf['direcao_graus'] = df_rosa_pdf['direcao_vento'].map(mapa_direcao_graus).dropna()
-                                 fig_rosa_pdf = plt.figure(figsize=(8, 8))
-                                 ax_rosa = WindroseAxes.from_ax(fig=fig_rosa_pdf)
-                                 ax_rosa.bar(df_rosa_pdf['direcao_graus'], df_rosa_pdf['velocidade_vento'], normed=True, opening=0.8, edgecolor='white')
-                                 ax_rosa.set_legend(title="Velocidade (km/h)")
-                                 plt.title('Rosa dos Ventos')
-                                 plt.savefig(os.path.join(temp_dir, 'rosa_dos_ventos.png'), dpi=150, bbox_inches='tight')
-                                 plt.close(fig_rosa_pdf)
-                                 imagens_a_incluir['Rosa dos Ventos'] = 'rosa_dos_ventos.png'
+                            df_rosa_pdf_base = df_filtrado[df_filtrado['velocidade_vento'] > 0.1].copy()
+                            df_rosa_pdf_base['velocidade_ms_rosa'] = df_rosa_pdf_base['velocidade_vento'] * 0.27778
+                            df_rosa_pdf = df_rosa_pdf_base[df_rosa_pdf_base['velocidade_ms_rosa'].between(vento_selecionado_ms[0], vento_selecionado_ms[1])].copy()
+                            
+                            if len(df_rosa_pdf) >= 20 and 'direcao_vento' in df_rosa_pdf.columns:
+                                mapa_direcao_graus = {'N': 0, 'NE': 45, 'E': 90, 'SE': 135, 'S': 180, 'SW': 225, 'W': 270, 'NW': 315}
+                                df_rosa_pdf['direcao_graus'] = df_rosa_pdf['direcao_vento'].map(mapa_direcao_graus)
+                                df_rosa_pdf.dropna(subset=['direcao_graus'], inplace=True)
+                                
+                                if len(df_rosa_pdf) >= 20:
+                                    fig_rosa_pdf = plt.figure(figsize=(8, 8))
+                                    ax_rosa = WindroseAxes.from_ax(fig=fig_rosa_pdf)
+                                    ax_rosa.bar(df_rosa_pdf['direcao_graus'], df_rosa_pdf['velocidade_vento'], normed=True, opening=0.8, edgecolor='white')
+                                    ax_rosa.set_legend(title="Velocidade (km/h)")
+                                    plt.title('Rosa dos Ventos')
+                                    plt.savefig(os.path.join(temp_dir, 'rosa_dos_ventos.png'), dpi=150, bbox_inches='tight')
+                                    plt.close(fig_rosa_pdf)
+                                    imagens_a_incluir['Rosa dos Ventos'] = 'rosa_dos_ventos.png'
                         
                         caminho_pdf = criar_relatorio_pdf(temp_dir, resumo_df_pdf, data_inicio, data_fim, imagens_a_incluir)
                         
